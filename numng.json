@@ -1,0 +1,5 @@
+{
+  "name": "potash",
+  "version": "0.0.1",
+  "nu_libs": {"potash": "potash"}
+}
