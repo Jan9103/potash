@@ -1,92 +1,59 @@
 # Potash
 
-A [nushell][] TerminalUserInterface library inspired by [i3wm](https://i3wm.org/) and [dvtm](https://github.com/martanne/dvtm).
-
----
-
 | **PROJECT STATUS** | It is a proof-of-concept for the lowest-level-api. Expect everything to change. |
 | --- | --- |
 
-If you want to use it now pin a exact version in your package-manager and expect to have to rewrite a lot until it reaches version 1.0.
+A [nushell][] TerminalUserInterface library inspired by [i3wm][] and [dvtm][].
 
-Low-Level problems, which still have to be implemented:
-* Cross-panel communication (file-list on the left, file-preview on the right)
-  * currently possible via `custom-wrapper-pannel[hsplit[file-list, preview]]` and manipulating the contents from the wrapper
-  * maybe a `global_variables` dictionary?
-* Floating windows
+Let me disappoint you, before you get invested to much:
 
-TODO: High-level API
+* Potash is single-threaded. Therefore you have to choose between a fixed refresh rate and user interaction.
+* While it isn't necesarely ugly, it has some rough (unsmoothed) edges.
+  * It is not planned to sacrifice simplicity for design in the standard-library.
+    * It should however be possible to write a `smart-border-connector-wrapper-panel` or create alternatives to the builtin panels.
+  * [ratatui][], [fzf][], and similar will look better.
 
----
+Goals:
+
+* Modularity.
+  * Tiling, Titles, Text, etc all get treated the same way.
+* Simplicity.
+  * No "smart" border connectors, etc.
+  * Splitting instead of coordinates or similar.
+* Extensibility.
+  * Everything done internally could be done by a extension as well.
+* Hackability.
+  * The internals of each component are documented and can be manipulated.
+* 100% native nu-script.
+
 
 ## Usage
 
-**WIP** the part below is a WIP documentation, which i'll finish when it reaches 1.0.  
-For now use `example.nu` as a template.
+**NOTE:** It is strongly recommended to pin a specific version (no "or newer") if you use a package-manager.
 
-### Panels
+Potash is split into multiple parts:
 
-Everything in potash is a panel.  
-Every panel implements a function, which will render graphics for the provided size and width.  
+* A low-level API:
+  * **Status:** Early prototype.
+  * **Pro:** You can control everything.
+  * **Con:** Creating a basic interface can take many linex of code.
+  * [documentation](./docs/low_level/index.md)
+* A high-level API:
+  * **Status:** Not yet implemented.
+  * **Pro:** It's easy to create a interface for common tasks in a single line.
+  * **Con:** Uncommon tasks might not be implemented.
+  * [documentation](./docs/high_level/index.md)
 
-Example:
-```
-$ panel text --help
-panel text <lines of text>
+## Roadmap
 
-$ panel render --help
-panel render <panel> <width> <height>
+### 0.1.0 (alpha 1.0)
 
-$ panel render (panel text ["hi"]) 2 1 | str join "\n"
-hi
-```
-
-### Splits
-
-In order to render multiple panels at once you can use `hsplit` (horizontal split) and `vsplit`
-panels, which can contain multiple panels and will render those.
-
-Example:
-```
-$ panel hsplit --help
-panel hsplit <...panels>
-
-$ panel render (panel hsplit (panel text ["hi"]) (panel text ["hi"])) 7 1 | str join "\n"
-hi │ hi
-```
-
-### Available Panels
-
-* `potash/panels.nu text`: render static text-lines
-* `potash/panels.nu hsplit`: horizontal split
-* `potash/panels.nu vsplit`: vertical split
-* `potash/panels.nu titled`: add a title to a panel
-* `potash/panels.nu generator`: provide your own code to render this panels content
-
-
-## Inner Workings
-
-```nu
-let panel = {
-  "T": "Type-Name"
-  "data": {}  # specific to type. mutable storage
-  "render": {|data,width,height,active| ["", ""]}  # render implementation for type.
-                                                   # the base-types are implemented in `render_panel` instead
-                                                   # in order to save storage, etc
-  "handle_input": {|data,input|
-    # data = $panel.data
-    # input = result of `input listen`
-
-    {  # return: everything is optional and only active in included
-      "data": $data    # if included this will override the old $panel.data
-      "handled": true  # used to let parent-panels handle it instead
-      "return": {}     # a dict, which can contain anything. used to pass info to a parent panel
-      "exit": any      # return value of the base-function
-    }
-  }
-  "selectable": {|| true}  # is selectable?
-}
-```
+* [ ] documentation
+* [ ] find a good code-structure
+* [ ] a few high-level API commands (for testing)
+  * [ ] select_with_preview
+* [ ] snippets for generating text
+  * [ ] progress-bar
 
 
 ## FAQ
@@ -94,4 +61,8 @@ let panel = {
 **Q:** Why this name?  
 **A:** I wrote a LLM `potato` and took the first word from its response, which i did not know.
 
+[dvtm]: https://github.com/martanne/dvtm
+[fzf]: https://github.com/junegunn/fzf
+[i3wm]: https://i3wm.org
 [nushell]: https://nushell.sh
+[ratatui]: https://github.com/ratatui/ratatui
