@@ -1,15 +1,18 @@
-const UP_KEY_CODES = ["up", "w", "k"]
-const DOWN_KEY_CODES = ["down", "s", "j"]
-const LEFT_KEY_CODES = ["left", "a", "h"]
-const RIGHT_KEY_CODES = ["right", "d", "l"]
+export const UP_KEY_CODES: list<string> = ["up", "w", "k"]
+export const DOWN_KEY_CODES: list<string> = ["down", "s", "j"]
+export const LEFT_KEY_CODES: list<string> = ["left", "a", "h"]
+export const RIGHT_KEY_CODES: list<string> = ["right", "d", "l"]
+
+export const ANSI_ALT_BUFFER_OPEN: string = "\e[?1049h"
+export const ANSI_ALT_BUFFER_CLOSE: string = "\e[?1049l"
 
 export def panel_is_selectable [panel]: nothing -> bool {
   match $panel.T {
     "text" => false,
     "titled" => { panel_is_selectable $panel.data.panel }
-    "vsplit" => { $panel.data.panels | any {|subpanel| panel_is_selectable $subpanel } }
-    "hsplit" => { $panel.data.panels | any {|subpanel| panel_is_selectable $subpanel } }
-    _ => { if "selectable" in $panel { do $panel.selectable } else { false } }
+    "hsplit" | "vsplit" => { $panel.data.panels | any {|subpanel| panel_is_selectable $subpanel } }
+    "list_selector" => true,
+    _ => { if "selectable" in $panel { do $panel.selectable $panel.data } else { false } }
   }
 }
 
@@ -44,65 +47,105 @@ def split_handle_input [data, input, plus_keys, minus_keys]: nothing -> record {
 }
 
 export def panel_handle_input [panel, input]: nothing -> record {
-  let handler = (match $panel.T {
-    "text" => {{|data,input| {"handled": "false"}}}
-    "titled" => {{|data,input| {"handled": "false"}}}
-    "vsplit" => {{|data,input| split_handle_input $data $input $DOWN_KEY_CODES $UP_KEY_CODES }}
-    "hsplit" => {{|data,input| split_handle_input $data $input $RIGHT_KEY_CODES $LEFT_KEY_CODES }}
-    _ => {$panel.handle_input? | default {|data,input| {}}}
-  })
-  do $handler $panel.data $input
+  match $panel.T {
+    "text" | "titled" => {{}}
+    "vsplit" => { split_handle_input $panel.data $input $DOWN_KEY_CODES $UP_KEY_CODES }
+    "hsplit" => { split_handle_input $panel.data $input $RIGHT_KEY_CODES $LEFT_KEY_CODES }
+    "list_selector" => {
+      if $input.modifiers != [] or not ("code" in $input) {return {}}
+      let new_data = (
+        if $input.code in $DOWN_KEY_CODES {
+          $panel.data
+          | update selected ([($panel.data.selected + 1) (($panel.data.list | length) - 1)] | math min)
+        } else if $input.code in $UP_KEY_CODES {
+          $panel.data
+          | update selected ([($panel.data.selected - 1) 0] | math max)
+        } else {
+          $panel.data
+        }
+      )
+      let return_pressed: bool = ($input.code == "enter")
+      {
+        "data": $new_data
+        "handled": (($panel.data.selected != $new_data.selected) or $return_pressed)
+      }
+      | merge (if $return_pressed {{"return": ($panel.data.list | get $panel.data.selected)}} else {{}})
+    }
+    _ => {
+      if "handle_input" in $panel {
+        do $panel.handle_input $panel.data $input
+      } else {{"handled": false}}
+    }
+  }
 }
 
-export def render_panel [panel, width: int, height: int, active: bool]: nothing -> list<string> {
-  let renderer = (match $panel.T {
-    "text" => {{|data,width,height,active| fix_size $data.lines $width $height}}
-    "generator" => {{|data,width,height,active| do $data.code? $width $height}}
-    "titled" => {{|data,width,height,active| [
-      (fix_string_width $data.title $width)
-      (ansi reset | fill --character $data.seperator --width $width)
-      ...(render_panel $data.panel $width ($height - 2) $active)
-    ] }}
+export def render_panel [panel, width: int, height: int, active: bool = true]: nothing -> list<string> {
+  match $panel.T {
+    "text" => {fix_size $panel.data.lines $width $height}
+    "titled" => {[
+      (fix_string_width $panel.data.title $width)
+      (ansi reset | fill --character $panel.data.seperator --width $width)
+      ...(render_panel $panel.data.panel $width ($height - 2) $active)
+    ]}
 
-    "vsplit" => {{|data,width,height,active|
-      let pc: int = ($data.panels | length)
+    "vsplit" => {
+      let pc: int = ($panel.data.panels | length)
       let vd: int = ((($height - $pc + 1) / $pc) | math floor)
       let vb: int = (($height - (($vd * $pc) + $pc - 1)) + $vd)
-      let seperator: string = (ansi reset | fill --character $data.seperator --width $width)
-      $data.panels | enumerate
-      | each {|i| [(render_panel $i.item $width (if $i.index == 0 {$vb} else {$vd}) ($active and $i.index == $data.selected)) $seperator] }
+      let seperator: string = (ansi reset | fill --character $panel.data.seperator --width $width)
+      $panel.data.panels | enumerate
+      | each {|i| [(render_panel $i.item $width (if $i.index == 0 {$vb} else {$vd}) ($active and $i.index == $panel.data.selected)) $seperator] }
       | flatten | flatten | range 0..(-2)
-    }}
+    }
 
-    "hsplit" => {{|data,width,height,active|
-      let sw: int = ($data.seperator | ansi strip | str length --grapheme-clusters)
-      let pc: int = ($data.panels | length)
+    "hsplit" => {
+      let sw: int = ($panel.data.seperator | ansi strip | str length --grapheme-clusters)
+      let pc: int = ($panel.data.panels | length)
       let hd: int = ((($width - (($pc - 1) * $sw)) / $pc) | math floor)
       let hb: int = (($width - (($hd * $pc) + (($pc - 1) * $sw))) + $hd)
-      let seperator: string = $"(ansi reset)($data.seperator)"
+      let seperator: string = $"(ansi reset)($panel.data.seperator)"
       let fd = (
-        $data.panels | enumerate
-        | each {|i| render_panel $i.item (if $i.index == 0 {$hb} else {$hd}) $height ($active and $i.index == $data.selected) }
+        $panel.data.panels | enumerate
+        | each {|i| render_panel $i.item (if $i.index == 0 {$hb} else {$hd}) $height ($active and $i.index == $panel.data.selected) }
       )
       0..($height - 1)
       | each {|line|
         $fd | each {|panel| $panel | get $line }
         | str join $seperator
       }
-    }}
+    }
 
-    _ => $panel.render
-  })
-  do $renderer $panel.data $width $height $active
+    "list_selector" => {
+      let scroll: int = ([($panel.data.selected - $height) ($panel.data.selected - 3) 0] | math max)
+      let selected_ansi: string = (if $active {$panel.data.asa} else {$panel.data.sa})
+      let unselected_ansi: string = (if $active {$panel.data.aua} else {$panel.data.ua})
+      let namer = ($panel.data.namer | default {|item| $item | to nuon --raw})
+      let lines: list<string> = (
+        $panel.data.list
+        | enumerate
+        | range $scroll..($scroll + $height - 1)
+        | each {|i| fix_string_width $"(if $i.index == $panel.data.selected {ansi $selected_ansi} else {ansi $unselected_ansi})(do $namer $i.item)" $width }
+      )
+      $lines
+      | append (
+        if $height <= ($lines | length) { [] } else {
+          0..($height - ($lines | length) - 1)
+          | each {"" | fill --width $width}
+        }
+      )
+    }
+
+    _ => { do $panel.render $panel.data $width $height $active }
+  }
 }
 
-def fix_string_width [text: string, width: int]: nothing -> string {
+export def fix_string_width [text: string, width: int]: nothing -> string {
   if $width <= 0 {return ""}
   let text = ($text | fill --width $width)
-  mut i = $width
+  mut i = ($width - 1)
   let tl = ($text | str length --grapheme-clusters)
   loop {
-    let s = ($text | str substring --grapheme-clusters 0..($i - 1))
+    let s = ($text | str substring --grapheme-clusters 0..$i)
     if ($s | ansi strip | str length --grapheme-clusters) == $width {
       return $s
     }
@@ -115,7 +158,7 @@ export def fix_size [lines: list<string>, width: int, height: int]: nothing -> l
   $lines
   | range 0..($height - 1)  # limit max height
   | each {|line| fix_string_width $line $width}
-  | append (
+  | append (  # append empty lines
     if $height <= ($lines | length) { [] } else {
       0..($height - ($lines | length) - 1)
       | each {"" | fill --width $width}
@@ -123,18 +166,36 @@ export def fix_size [lines: list<string>, width: int, height: int]: nothing -> l
   )
 }
 
+
+# handle user input until the panel returns a value and return that.
+# if the user presses `esc` it will return `null`
+export def run_until_return [
+  panel
+  --no-esc  # do not handle `esc` as exit
+]: nothing -> any {
+  mut p0 = $panel
+  print -n $ANSI_ALT_BUFFER_OPEN
+  loop {
+    let term_size = (term size)
+    print -n (panel render_panel $p0 $term_size.columns $term_size.rows true | str join "\n")
+    let inp = (input listen)
+    if $inp.code? == "esc" and not $no_esc { print -n $ANSI_ALT_BUFFER_CLOSE; return null }
+    let rv = (panel panel_handle_input $p0 $inp)
+    if "data" in $rv { $p0 = ($p0 | update data ($rv.data)) }
+    if "return" in $rv { print -n $ANSI_ALT_BUFFER_CLOSE; return $rv.return }
+  }
+}
+
+
+#######################################
+########## PANEL GENERATORS ###########
+#######################################
+
+
 # a panel, which display some static text
 export def text [lines: list<string>]: nothing -> record {{
   "data": {"lines": $lines}
   "T": "text"
-}}
-
-# a generator panel, whichs contents you can generate
-export def generator [
-  code  # example: {|width,height| panel fix_size (date now | into string) $width $height}
-]: nothing -> record {{
-  "data": {"code": $code}
-  "T": "generator"
 }}
 
 # a panel, which splits multiple panels vertically
@@ -147,7 +208,7 @@ export def vsplit [
     if (panel_is_selectable ($panels | get $selected)) { break }
     $selected = ($selected + 1)
   }
-  {
+  return {
     "data": {"panels": $panels, "seperator": $seperator, "selected": $selected}
     "T": "vsplit"
   }
@@ -163,7 +224,7 @@ export def hsplit [
     if (panel_is_selectable ($panels | get $selected)) { break }
     $selected = ($selected + 1)
   }
-  {
+  return {
     "data": {"panels": $panels, "seperator": $seperator, "selected": $selected}
     "T": "hsplit"
   }
@@ -189,47 +250,4 @@ export def list_item_selector [
 ] {{
   "data": {"list": $input_list, "selected": 0, "namer": $namer, "asa": $active_selected_ansi, "aua": $active_unselected_ansi, "sa": $selected_ansi, "ua": $unselected_ansi}
   "T": "list_selector"
-  "render": {|data,width,height,active|
-    let scroll: int = ([($data.selected - $height) ($data.selected - 3) 0] | math max)
-    let selected_ansi: string = (if $active {$data.asa} else {$data.sa})
-    let unselected_ansi: string = (if $active {$data.aua} else {$data.ua})
-    let namer = ($data.namer | default {|item| $item | to nuon --raw})
-    let lines: list<string> = (
-      $data.list
-      | enumerate
-      | range $scroll..($scroll + $height - 1)
-      | each {|i|
-        fix_string_width $"(if $i.index == $data.selected {ansi $selected_ansi} else {ansi $unselected_ansi})(do $namer $i.item)" $width
-      }
-    )
-    $lines
-    | append (
-      if $height <= ($lines | length) { [] } else {
-        0..($height - ($lines | length) - 1)
-        | each {"" | fill --width $width}
-      }
-    )
-  }
-  "selectable": {|| true}
-  "handle_input": {|data,input|
-    let new_data = (
-      if $input.modifiers != [] {
-        $data
-      } else if $input.code? in $DOWN_KEY_CODES {
-        $data
-        | update selected ([($data.selected + 1) (($data.list | length) - 1)] | math min)
-      } else if $input.code? in $UP_KEY_CODES {
-        $data
-        | update selected ([($data.selected - 1) 0] | math max)
-      } else {
-        $data
-      }
-    )
-    let return_pressed: bool = ($input.code? in ["enter"])
-    {
-      "data": $new_data
-      "handled": (($data.selected != $new_data.selected) or $return_pressed)
-    }
-    | merge (if $return_pressed {{"return": ($data.list | get $data.selected)}} else {{}})
-  }
 }}
