@@ -1,17 +1,17 @@
-export const UP_KEY_CODES: list<string> = ["up", "w", "k"]
-export const DOWN_KEY_CODES: list<string> = ["down", "s", "j"]
-export const LEFT_KEY_CODES: list<string> = ["left", "a", "h"]
-export const RIGHT_KEY_CODES: list<string> = ["right", "d", "l"]
+export const UP_KEY_CODES = ["up", "w", "k"]
+export const DOWN_KEY_CODES = ["down", "s", "j"]
+export const LEFT_KEY_CODES = ["left", "a", "h"]
+export const RIGHT_KEY_CODES = ["right", "d", "l"]
 
-export const ANSI_ALT_BUFFER_OPEN: string = "\e[?1049h"
-export const ANSI_ALT_BUFFER_CLOSE: string = "\e[?1049l"
+export const ANSI_ALT_BUFFER_OPEN = "\e[?1049h"
+export const ANSI_ALT_BUFFER_CLOSE = "\e[?1049l"
 
 export def panel_is_selectable [panel]: nothing -> bool {
   match $panel.T {
     "text" => false,
     "titled" => { panel_is_selectable $panel.data.panel }
-    "hsplit" | "vsplit" => { $panel.data.panels | any {|subpanel| panel_is_selectable $subpanel } }
-    "list_selector" => true,
+    "hsplit" | "vsplit" | "vlist" => { $panel.data.panels | any {|subpanel| panel_is_selectable $subpanel } }
+    "list_selector" | "inputline" | "checkbox" => true,
     _ => { if "selectable" in $panel { do $panel.selectable $panel.data } else { false } }
   }
 }
@@ -49,8 +49,23 @@ def split_handle_input [data, input, plus_keys, minus_keys]: nothing -> record {
 export def panel_handle_input [panel, input]: nothing -> record {
   match $panel.T {
     "text" | "titled" => {{}}
+    "checkbox" => {
+      return (if $input.code? in [" ", "enter"] { {
+        "handled": true
+        "data": ($panel.data | update active (not $panel.data.active))
+      } } else { {} })
+    }
+    "vlist" => { split_handle_input $panel.data $input $DOWN_KEY_CODES $UP_KEY_CODES }
     "vsplit" => { split_handle_input $panel.data $input $DOWN_KEY_CODES $UP_KEY_CODES }
     "hsplit" => { split_handle_input $panel.data $input $RIGHT_KEY_CODES $LEFT_KEY_CODES }
+
+    "titled" => {
+      let rv = (panel_handle_input $panel.data.panel $input)
+      if ("data" in $rv) {
+        $rv | update data ($panel.data | update panel.data $rv.data)
+      } else {$rv}
+    }
+
     "list_selector" => {
       if $input.modifiers != [] or not ("code" in $input) {return {}}
       let new_data = (
@@ -71,6 +86,41 @@ export def panel_handle_input [panel, input]: nothing -> record {
       }
       | merge (if $return_pressed {{"return": ($panel.data.list | get $panel.data.selected)}} else {{}})
     }
+
+    "inputline" => {
+      if $input.key_type? == "char" { return {
+        "handled": true
+        "data": (
+          $panel.data | update "text" ([
+            (if $panel.data.c == 0 {""} else {$panel.data.text | str substring --grapheme-clusters 0..($panel.data.c - 1)})
+            $input.code
+            (if $panel.data.c == ($panel.data.text | str length --grapheme-clusters) {""} else {$panel.data.text | str substring --grapheme-clusters ($panel.data.c)..})
+          ] | str join '')
+          | update "c" ($panel.data.c + 1)
+        )
+      } }
+      if $input.code? == "backspace" and $panel.data.c != 0 { return {
+        "handled": true
+        "data": (
+          $panel.data
+          | update "text" ([
+            (if $panel.data.c == 0 {""} else {$panel.data.text | str substring --grapheme-clusters 0..($panel.data.c - 2)})
+            (if $panel.data.c == ($panel.data.text | str length --grapheme-clusters) {""} else {$panel.data.text | str substring --grapheme-clusters ($panel.data.c)..})
+          ] | str join '')
+          | update "c" ([0 ($panel.data.c - 1)] | math max)
+        )
+      } }
+      if $input.modifiers? == [] and $input.code? == "left" and $panel.data.c != 0 { return {
+        "handled": true
+        "data": ($panel.data | update "c" ($panel.data.c - 1))
+      } }
+      if $input.modifiers? == [] and $input.code? == "right" and $panel.data.c < ($panel.data.text | str length --grapheme-clusters) { return {
+        "handled": true
+        "data": ($panel.data | update "c" ($panel.data.c + 1))
+      } }
+      return {"handled": false}
+    }
+
     _ => {
       if "handle_input" in $panel {
         do $panel.handle_input $panel.data $input
@@ -87,6 +137,30 @@ export def render_panel [panel, width: int, height: int, active: bool = true]: n
       (ansi reset | fill --character $panel.data.seperator --width $width)
       ...(render_panel $panel.data.panel $width ($height - 2) $active)
     ]}
+    "checkbox" => {
+      # TODO: color
+      if $active {
+        if $panel.data.active {
+          fix_size [$'(ansi $panel.data.bas)[x](ansi reset) (ansi $panel.data.ta)($panel.data.text)'] $width $height
+        } else {
+          fix_size [$'(ansi $panel.data.bau)[ ](ansi reset) (ansi $panel.data.ta)($panel.data.text)'] $width $height
+        }
+      } else {
+        if $panel.data.active {
+          fix_size [$'(ansi $panel.data.bis)[x](ansi reset) (ansi $panel.data.ti)($panel.data.text)'] $width $height
+        } else {
+          fix_size [$'(ansi $panel.data.biu)[ ](ansi reset) (ansi $panel.data.ti)($panel.data.text)'] $width $height
+        }
+      }
+    }
+
+    "vlist" => {
+      fix_size (
+        $panel.data.panels | enumerate | each {|i|
+          render_panel $i.item $width 1 ($active and ($i.index == $panel.data.selected))
+        } | flatten
+      ) $width $height
+    }
 
     "vsplit" => {
       let pc: int = ($panel.data.panels | length)
@@ -133,6 +207,19 @@ export def render_panel [panel, width: int, height: int, active: bool = true]: n
           | each {"" | fill --width $width}
         }
       )
+    }
+
+    "inputline" => {
+      # TODO: handle text wider than the field (scroll)
+      let bg = (if $active {$panel.data.caa} else {$panel.data.cia})
+      let ta = (if $panel.data.ta == "reset" {""} else {ansi $panel.data.ta})
+      let text = ([
+        $ta
+        (if $panel.data.c == 0 {""} else {$panel.data.text | str substring --grapheme-clusters 0..($panel.data.c - 1)})
+        $"(ansi $bg) (ansi reset)($ta)"
+        (if $panel.data.c == ($panel.data.text | str length --grapheme-clusters) {""} else {$panel.data.text | str substring --grapheme-clusters ($panel.data.c + 1)..})
+      ] | str join "")
+      fix_size [$text] $width $height
     }
 
     _ => { do $panel.render $panel.data $width $height $active }
@@ -198,6 +285,40 @@ export def text [lines: list<string>]: nothing -> record {{
   "T": "text"
 }}
 
+export def checkbox [
+  text: string,
+  --active-by-default
+  --box-active-selected-ansi: string = "green_reverse"
+  --box-active-unselected-ansi: string = "red_reverse"
+  --box-inactive-selected-ansi: string = "green"
+  --box-inactive-unselected-ansi: string = "red"
+  --text-active-ansi: string = "white_bold"
+  --text-inactive-ansi: string = "white"
+]: nothing -> record { {
+  "data": {
+    "text": $text, "active": $active_by_default
+    "bas": $box_active_selected_ansi, "bau": $box_active_unselected_ansi
+    "bis": $box_inactive_selected_ansi, "biu": $box_inactive_unselected_ansi
+    "ta": $text_active_ansi, "ti": $text_inactive_ansi
+  }
+  "T": "checkbox"
+} }
+
+# vertically stack multiple 1 high panels without any seperation between them
+export def vlist [
+  ...panels
+]: nothing -> record {
+  mut selected: int = 0
+  while $selected != (($panels | length) - 1) {
+    if (panel_is_selectable ($panels | get $selected)) { break }
+    $selected = ($selected + 1)
+  }
+  return {
+    "data": {"panels": $panels, "selected": $selected}
+    "T": "vlist"
+  }
+}
+
 # a panel, which splits multiple panels vertically
 export def vsplit [
   --seperator(-s): string = "─"  # other examples: ─ ━ ┄ ┅ ┈ ┉ ╌ ╍ ═ ╼ ╾
@@ -250,4 +371,67 @@ export def list_item_selector [
 ] {{
   "data": {"list": $input_list, "selected": 0, "namer": $namer, "asa": $active_selected_ansi, "aua": $active_unselected_ansi, "sa": $selected_ansi, "ua": $unselected_ansi}
   "T": "list_selector"
+}}
+
+
+# FIXME: crashes by rejecting $data.text.data.caa somehow
+export def searchable_list_item_selector [
+  --text-input-ansi: string = "reset"  # gets passed to 'inputline'
+  --cursor-active-ansi: string = "bg_green"  # gets passed to 'inputline'
+  --cursor-inactive-ansi: string = "bg_white"  # gets passed to 'inputline'
+  --namer: any = null  # example: {|item| $item | to nuon --raw }
+  --active-selected-ansi: string = "green_bold"  # gets passed to 'list_item_selector'
+  --active-unselected-ansi: string = "reset"  # gets passed to 'list_item_selector'
+  --selected-ansi: string = "white_bold"  # gets passed to 'list_item_selector'
+  --unselected-ansi: string = "white"  # gets passed to 'list_item_selector'
+  --seperator(-s): string = "─"  # other examples: ─ ━ ┄ ┅ ┈ ┉ ╌ ╍ ═ ╼ ╾
+  input_list: list
+] {{
+  "T": "searchable_list_selector"
+  "data": {
+    "namer": $namer
+    "raw_list": $input_list
+    "seperator": $seperator
+    "text": (inputline)
+    "list": (list_item_selector $input_list --namer $namer --active-selected-ansi $active_selected_ansi --active-unselected-ansi $active_unselected_ansi --selected-ansi $selected_ansi --unselected-ansi $unselected_ansi)
+  }
+  "selectable": {|data| true}
+
+  "render": {|data,width,height,active| [
+    (render_panel $data.text $width 1 $active)
+    (ansi reset | fill --character $data.seperator --width $width)
+    ...(render_panel $data.list $width ($height - 2) $active)
+  ]}
+
+  "handle_input": {|data,input|
+    let rv = (panel_handle_input $data.text $input)
+    if "data" in $rv {
+      let regex = $rv.data.text
+      let filtered_list = (try {$data.raw_list | where (do $data.namer $it) =~ $regex} catch {[]})
+      return (
+        $rv | update data (
+          $data
+          | update list.data.list $filtered_list
+          | update list.data.selected ([([$data.list.data.selected ($filtered_list | length)] | math min) 0] | math max)
+          | updaet text.data $rv.data
+        )
+      )
+    }
+
+    let rv = (panel_handle_input $data.list $input)
+    if "return" in $rv { return ($rv | reject data) }
+    if "data" in $rv { return ($rv | update data ($data | update text.data $rv.data)) }
+    return {}
+  }
+}}
+
+
+export def inputline [
+  --prefilled-text: string = ""
+  --text-ansi: string = "reset"
+  --cursor-active-ansi: string = "bg_green"
+  --cursor-inactive-ansi: string = "bg_white"
+] {{
+  "T": "inputline"
+  "data": {"text": $prefilled_text, "c": ($prefilled_text | str length --grapheme-clusters), "ta": $text_ansi, "caa": $cursor_active_ansi, "cia": $cursor_inactive_ansi}
 }}

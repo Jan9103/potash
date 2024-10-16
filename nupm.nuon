@@ -1,6 +1,6 @@
 {
   name: "potash"
-  version: "0.0.2"
+  version: "0.0.3"
   description: "A nushell TUI library"
   maintainers: ["@jan9103"]
   license: "https://github.com/jan9103/potash/blob/main/LICENSE"

@@ -22,7 +22,7 @@ Next chapter: [Creating own panel types](./own_panels.md)
 <a name="c2.1.1"></a>
 <a name="_text"></a>
 
-### text
+### (2.1.1) text
 
 A basic text panel. No line-wrapping.
 
@@ -37,7 +37,7 @@ Data:
 <a name="c2.1.2"></a>
 <a name="_hsplit"></a>
 
-### hsplit
+### (2.1.2) hsplit
 
 Split into multiple panels horizontally.
 
@@ -62,7 +62,7 @@ Data:
 <a name="c2.1.3"></a>
 <a name="_vsplit"></a>
 
-### vsplit
+### (2.1.3) vsplit
 
 Split into multiple panels vertically.
 
@@ -87,7 +87,7 @@ Data:
 <a name="c2.1.4"></a>
 <a name="_titled"></a>
 
-### titled
+### (2.1.4) titled
 
 Add a title-line + seperator above a panel
 
@@ -107,7 +107,7 @@ Data:
 <a name="c2.1.5"></a>
 <a name="_list_item_selector"></a>
 
-### list_item_selector
+### (2.1.5) list_item_selector
 
 A panel displaying a list of items allowing the user to select a entry and confirm it with `return`.
 
@@ -140,6 +140,40 @@ Data:
 * `selected: int`
 * `namer: closure`
 * ansi codes: the initials (ex: `aua`) of the arguments.
+
+
+<a name="c2.1.6"></a>
+
+## (2.1.6) inputline
+
+A one-line text-editor.
+
+Keys:
+
+* `left-arrow`, `right-arrow` (without modifiers): move the cursor
+* `backspace` (without modifiers): delete a character
+* text-characters: write character
+
+Arguments:
+
+* `--prefilled-text: string`
+  * Default: `""`
+* `--text-ansi: string`: `ansi` argument for the text
+  * Default: `"reset"`
+  * Example: `"red"`
+* `--cursor-active-ansi: string`: `ansi` argument for the cursor while the inputline is selected
+  * Default: `"bg_green"`
+  * Examle: `"bg_yellow"`
+* `--cursor-inactive-ansi: string`: `ansi` argument for the cursor while the inputline is not selected
+  * Default: `"bg_white"`
+  * Examle: `"reset"`
+
+Data:
+
+* `text: string`
+* `c: int`: the cursor location (0 is the very left)
+* `ta: string`: `--text-ansi`
+* `caa: string`, `cia: string`: `--cursor-(in)active-ansi`
 
 ---
 

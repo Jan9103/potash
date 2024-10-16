@@ -1,5 +1,9 @@
 {
   "name": "potash",
-  "version": "0.0.2",
-  "nu_libs": {"potash": "potash"}
+  "version": "0.0.3",
+  "nu_libs": {"potash": "potash"},
+  "linkin": {
+    "nagoya:nulibs/nagoya": {"name": "jan9103/nagoya", "version": "~1.0.0"}
+  },
+  "registry": [{"source_uri": "https://github.com/Jan9103/numng_repo", "package_format": "numng", "path_offset": "repo"}]
 }
