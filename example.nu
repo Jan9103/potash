@@ -4,12 +4,12 @@ def main [
   items: list<any> = ["foo" "bar" "baz"]
 ]: nothing -> any {
   mut p0 = (
+      # (panel text ["top"])
     panel vsplit
-      (panel text ["top"])
       (panel hsplit
         (panel text ["center left"])
         (panel list_item_selector $items)
-        (panel list_item_selector ["a" "b"]))
+        (panel searchable_list_item_selector ["aaaa" "bbbb"]))
       (panel list_item_selector ["a" "b"])
   )
   loop {
@@ -22,8 +22,6 @@ def main [
     if $inp.code? == "esc" { return null }
     let rv = (panel panel_handle_input $p0 $inp)
     if "data" in $rv { $p0 = ($p0 | update data ($rv.data)) }
-    if "return" in $rv {
-      return $rv.return
-    }
+    if "return" in $rv { return $rv.return }
   }
 }
