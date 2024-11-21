@@ -233,13 +233,48 @@ export def run_until_return [
   print -n $ANSI_ALT_BUFFER_OPEN
   loop {
     let term_size = (term size)
-    print -n (panel render_panel $p0 $term_size.columns $term_size.rows true | str join "\n")
+    print -n (render_panel $p0 $term_size.columns $term_size.rows true | str join "\n")
     let inp = (input listen)
     if $inp.code? == "esc" and not $no_esc { print -n $ANSI_ALT_BUFFER_CLOSE; return null }
-    let rv = (panel panel_handle_input $p0 $inp)
+    let rv = (panel_handle_input $p0 $inp)
     if "data" in $rv { $p0 = ($p0 | update data ($rv.data)) }
     if "return" in $rv { print -n $ANSI_ALT_BUFFER_CLOSE; return $rv.return }
   }
+}
+export def dual_until_return [
+  panel
+  --no-esc
+  --render-task: any  # same usage as for a "PANEL.handle_input" closure
+  --render-clock-sleep: duration = 10ms
+]: nothing -> any {
+  use ../nulibs/nagoya/fgq.nu
+  # [(scope variables) (scope modules) (scope commands)] | save -f a.nuon
+
+  let q: path = (fgq create)
+  0 | tee {|| loop {      
+    let inp = (input listen)
+    if ($q | path exists) { fgq push $q $inp } else { return }
+  } } | null
+  let res = (do {
+    mut p0 = $panel
+    print -n $ANSI_ALT_BUFFER_OPEN
+    loop {
+      let term_size = (term size)
+      print -n (render_panel $p0 ($term_size.columns - 2) ($term_size.rows - 2) true | str join "\n")
+      for inp in (fgq pop_all $q) {
+        if $inp.code? == "esc" and not $no_esc { print -n $ANSI_ALT_BUFFER_CLOSE; return null }
+        let rv = (panel_handle_input $p0 $inp)
+        if "data" in $rv { $p0 = ($p0 | update data ($rv.data)) }
+        if "return" in $rv { print -n $ANSI_ALT_BUFFER_CLOSE; return $rv.return }
+      }
+      let rv = (do $render_task $panel)
+      if "data" in $rv { $p0 = ($p0 | update data ($rv.data)) }
+      if "return" in $rv { print -n $ANSI_ALT_BUFFER_CLOSE; return $rv.return }
+      sleep $render_clock_sleep
+    }
+  })
+  fgq delete $q
+  return $res
 }
 
 
