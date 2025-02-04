@@ -169,7 +169,7 @@ export def render_panel [panel, width: int, height: int, active: bool = true]: n
       let seperator: string = (ansi reset | fill --character $panel.data.seperator --width $width)
       $panel.data.panels | enumerate
       | each {|i| [(render_panel $i.item $width (if $i.index == 0 {$vb} else {$vd}) ($active and $i.index == $panel.data.selected)) $seperator] }
-      | flatten | flatten | range 0..(-2)
+      | flatten | flatten | rangeslice 0..(-2)
     }
 
     "hsplit" => {
@@ -197,7 +197,7 @@ export def render_panel [panel, width: int, height: int, active: bool = true]: n
       let lines: list<string> = (
         $panel.data.list
         | enumerate
-        | range $scroll..($scroll + $height - 1)
+        | rangeslice $scroll..($scroll + $height - 1)
         | each {|i| fix_string_width $"(if $i.index == $panel.data.selected {ansi $selected_ansi} else {ansi $unselected_ansi})(do $namer $i.item)" $width }
       )
       $lines
@@ -243,7 +243,7 @@ export def fix_string_width [text: string, width: int]: nothing -> string {
 
 export def fix_size [lines: list<string>, width: int, height: int]: nothing -> list<string> {
   $lines
-  | range 0..($height - 1)  # limit max height
+  | rangeslice 0..($height - 1)  # limit max height
   | each {|line| fix_string_width $line $width}
   | append (  # append empty lines
     if $height <= ($lines | length) { [] } else {
@@ -435,3 +435,11 @@ export def inputline [
   "T": "inputline"
   "data": {"text": $prefilled_text, "c": ($prefilled_text | str length --grapheme-clusters), "ta": $text_ansi, "caa": $cursor_active_ansi, "cia": $cursor_inactive_ansi}
 }}
+
+def rangeslice [a] {
+  if (version).minor > 101 {
+    $in | slice $a
+  } else {
+    $in | range $a
+  }
+}
